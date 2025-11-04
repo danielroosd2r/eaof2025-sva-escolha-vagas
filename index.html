@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</title>
+  <style>
+    :root{
+      --bg:#0b1220; --card:#0f1a30; --muted:#8aa0bd; --text:#eaf0ff;
+      --accent:#3aa2ff; --ok:#76d275; --warn:#ffb74d; --err:#ff6e6e; --border:#1f2a44;
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font:400 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif; background:var(--bg); color:var(--text)}
+    .container{max-width:1100px; margin:0 auto; padding:20px}
+    header h1{margin:8px 0 4px; font-size:26px}
+    header .subtitle{color:var(--muted)}
+    .card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; margin:14px 0; box-shadow:0 6px 16px rgba(0,0,0,.25)}
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .space-between{justify-content:space-between}
+    label{min-width:260px}
+    input[type=file], select, button{ background:#0c1528; color:var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 12px; }
+    select:disabled, button:disabled{opacity:.5; cursor:not-allowed}
+    button{cursor:pointer}
+    button.primary{border-color:var(--accent)}
+    button.ghost{background:transparent}
+    .status{margin:8px 0; color:var(--muted)}
+    .status.ok{color:var(--ok)}
+    .status.warn{color:var(--warn)}
+    .status.err{color:var(--err)}
+    .grid{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+    @media (max-width: 900px){.grid{grid-template-columns:1fr}}
+    .table-wrapper{overflow:auto; border:1px solid var(--border); border-radius:10px}
+    table{width:100%; min-width:740px; border-collapse:separate; border-spacing:0}
+    th,td{padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; text-align:left}
+    thead th{position:sticky; top:0; background:#12203a}
+    tbody tr:nth-child(even){background:#0e172b}
+    .small{font-size:12px; color:var(--muted)}
+    .pill{display:inline-block; padding:2px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; margin-left:8px}
+    .help code{background:#0c1528; border:1px solid var(--border); padding:1px 6px; border-radius:6px}
+  </style>
+</head>
+<body>
+  <header class="container">
+    <h1>Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</h1>
+    <p class="subtitle">Fluxo de escolha por classificação (1→58). Arquivos: <strong>classificacao.csv</strong> e <strong>vagas.csv</strong>.</p>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>1) Carregar dados</h2>
+      <div class="grid">
+        <div>
+          <label>Arquivo de classificação (<strong>classificacao.csv</strong>)</label><br>
+          <input id="csvPessoas" type="file" accept=".csv,text/csv" />
+          <p class="small help">Cabeçalhos exigidos: <code>CLASSIFICACAO</code> (1..58) e <code>NOME_GUERRA</code>.</p>
+        </div>
+        <div>
+          <label>Arquivo de vagas (<strong>vagas.csv</strong>)</label><br>
+          <input id="csvVagas" type="file" accept=".csv,text/csv" />
+          <p class="small help">Cabeçalhos exigidos: <code>LOCALIDADE</code>, <code>ODGSA</code> e <code>OM</code>. (Ex.: 73 vagas)</p>
+        </div>
+      </div>
+      <p id="statusLoad" class="status">Aguardando carregamento dos arquivos…</p>
+    </section>
+
+    <section class="card">
+      <h2>2) Seleção e confirmação</h2>
+      <div class="row">
+        <label for="selPessoa">Seu nome (NOME_GUERRA)</label>
+        <select id="selPessoa" disabled>
+          <option value="">— selecione —</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="selVaga">Vaga disponível (LOCALIDADE · ODGSA · OM)</label>
+        <select id="selVaga" disabled>
+          <option value="">— selecione —</option>
+        </select>
+        <button id="btnConfirmar" class="primary" disabled>Confirmar escolha</button>
+        <span id="tagTurno" class="pill">vez: —</span>
+      </div>
+      <p id="statusTurno" class="status">—</p>
+      <div class="row">
+        <button id="btnExportar" class="ghost" disabled>Exportar resultados (CSV)</button>
+        <button id="btnReset" class="ghost" disabled>Reiniciar (limpar tudo)</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row space-between">
+        <h2>3) Resultados parciais</h2>
+        <span id="resumo" class="small">0/0 escolhas concluídas</span>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th># CLASSIFICACAO</th>
+              <th>NOME_GUERRA</th>
+              <th>LOCALIDADE</th>
+              <th>ODGSA</th>
+              <th>OM</th>
+              <th>Data/Hora</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyResultados"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="container small">Uso local/offline. Os dados ficam no seu navegador (localStorage).</footer>
+
+  <script>
+    function detectSeparator(text){ const firstLine=(text.split(/\r?\n/).find(l=>l.trim())||''); const c=(firstLine.match(/,/g)||[]).length; const s=(firstLine.match(/;/g)||[]).length; return s>c?';':','; }
+    function parseCSV(text, sep){ const rows=[]; let row=[], cur='', inQ=false; for(let i=0;i<text.length;i++){ const ch=text[i], nx=text[i+1]; if(ch==='"'){ if(inQ && nx==='"'){cur+='"'; i++;} else inQ=!inQ; } else if(ch===sep && !inQ){ row.push(cur); cur=''; } else if((ch==='\n'||ch==='\r')&&!inQ){ if(cur!==''||row.length){row.push(cur); rows.push(row); row=[]; cur='';} if(ch==='\r'&&nx==='\n') i++; } else { cur+=ch; } } if(cur!==''||row.length){row.push(cur); rows.push(row);} return rows; }
+    function normHeader(h){ return String(h||'').trim().toUpperCase(); }
+
+    const state={pessoas:[], vagas:[], atribuicoes:[]};
+    const LS_KEY='eaof2025_sva_v3';
+    function save(){localStorage.setItem(LS_KEY, JSON.stringify(state));}
+    function load(){try{const s=localStorage.getItem(LS_KEY);if(s){const o=JSON.parse(s);if(o){state.pessoas=o.pessoas||[];state.vagas=o.vagas||[];state.atribuicoes=o.atribuicoes||[];}}}catch(e){}}
+
+    const els={csvPessoas:document.getElementById('csvPessoas'),csvVagas:document.getElementById('csvVagas'),selPessoa:document.getElementById('selPessoa'),selVaga:document.getElementById('selVaga'),btnConfirmar:document.getElementById('btnConfirmar'),statusLoad:document.getElementById('statusLoad'),statusTurno:document.getElementById('statusTurno'),tagTurno:document.getElementById('tagTurno'),tbodyResultados:document.getElementById('tbodyResultados'),resumo:document.getElementById('resumo'),btnExportar:document.getElementById('btnExportar'),btnReset:document.getElementById('btnReset')};
+
+    els.csvPessoas.addEventListener('change', async e=>{const f=e.target.files[0];if(!f)return;const text=await f.text();const sep=detectSeparator(text);const rows=parseCSV(text,sep).filter(r=>r.some(c=>String(c).trim()!==''));if(rows.length<2)return setLoad('classificacao.csv vazio.','err');const headers=rows[0].map(normHeader);const iClass=headers.indexOf('CLASSIFICACAO');const iNome=headers.indexOf('NOME_GUERRA');if(iClass<0||iNome<0)return setLoad('Faltam colunas CLASSIFICACAO ou NOME_GUERRA.','err');const pessoas=rows.slice(1).map(r=>({nome:String(r[iNome]||'').trim(),classificacao:Number(String(r[iClass]||'').trim())})).filter(p=>p.nome&&Number.isFinite(p.classificacao));pessoas.sort((a,b)=>a.classificacao-b.classificacao||a.nome.localeCompare(b.nome));state.pessoas=pessoas;save();setLoad(`Pessoas: ${pessoas.length}.`,'ok');repopulateSelPessoa();updateEverything();});
+
+    els.csvVagas.addEventListener('change', async e=>{const f=e.target.files[0];if(!f)return;const text=await f.text();const sep=detectSeparator(text);const rows=parseCSV(text,sep).filter(r=>r.some(c=>String(c).trim()!==''));if(rows.length<2)return setLoad('vagas.csv vazio.','err');const headers=rows[0].map(normHeader);const iLoc=headers.indexOf('LOCALIDADE');const iOdg=headers.indexOf('ODGSA');const iOm=headers.indexOf('OM');if(iLoc<0||iOdg<0||iOm<0)return setLoad('Faltam colunas LOCALIDADE, ODGSA ou OM.','err');const ocupadas=new Set(state.atribuicoes.map(a=>`${a.localidade}||${a.odgsa}||${a.om}`));const vagas=rows.slice(1).map(r=>{const localidade=String(r[iLoc]||'').trim();const odgsa=String(r[iOdg]||'').trim();const om=String(r[iOm]||'').trim();if(!localidade||!odgsa||!om)return null;const key=`${localidade}||${odgsa}||${om}`;return ocupadas.has(key)?null:{localidade,odgsa,om,label:`${localidade} · ${odgsa} · ${om}`};}).filter(Boolean);state.vagas=vagas;save();setLoad(`Vagas: ${vagas.length}.`,'ok');repopulateSelVaga();updateEverything();});
+
+    function setLoad(msg,kind){els.statusLoad.className='status '+(kind||'');els.statusLoad.textContent=msg;}
+    function proximoDaVez(){const escolhidos=new Set(state.atribuicoes.map(a=>a.nome));for(const p of state.pessoas){if(!escolhidos.has(p.nome))return p;}return null;}
+    function isPessoaNaVez(nome){const prox=proximoDaVez();return prox&&prox.nome===nome;}
+    function getPessoa(nome){return state.pessoas.find(p=>p.nome===nome);}
+
+    function repopulateSelPessoa(){const sel=els.selPessoa;sel.innerHTML='<option value="">— selecione —</option>'+state.pessoas.map(p=>{const chosen=state.atribuicoes.some(a=>a.nome===p.nome);return `<option value="${escapeAttr(p.nome)}" ${chosen?'disabled':''}>${escapeHtml(p.nome)} (class. ${p.classificacao})</option>`;}).join('');sel.disabled=state.pessoas.length===0;}
+    function repopulateSelVaga(){const sel=els.selVaga;sel.innerHTML='<option value="">— selecione —</option>'+state.vagas.map(v=>`<option value="${escapeAttr(v.localidade+'||'+v.odgsa+'||'+v.om)}">${escapeHtml(v.label)}</option>`).join('');sel.disabled=state.vagas.length===0||!els.selPessoa.value||!isPessoaNaVez(els.selPessoa.value);}
+
+    function renderResultados(){const rows=state.atribuicoes.slice().sort((a,b)=>a.classificacao-b.classificacao||a.ts-b.ts);els.tbodyResultados.innerHTML=rows.map(a=>{const ts=new Date(a.ts).toLocaleString();return `<tr><td>${a.classificacao}</td><td>${escapeHtml(a.nome)}</td><td>${escapeHtml(a.localidade)}</td><td>${escapeHtml(a.odgsa)}</td><td>${escapeHtml(a.om)}</td><td>${ts}</td></tr>`;}).join('');const prox=proximoDaVez();els.resumo.textContent=`${state.atribuicoes.length}/${state.pessoas.length} concluídas — vagas restantes: ${state.vagas.length}`;els.tagTurno.textContent=prox?`vez: ${prox.nome} (#${prox.classificacao})`:'vez: — (concluído)';els.statusTurno.className='status '+(prox?'warn':'ok');els.statusTurno.textContent=prox?`Agora é a vez de ${prox.nome} (CLASSIFICACAO ${prox.classificacao}).`:'Todas as escolhas foram concluídas.';els.btnExportar.disabled=state.atribuicoes.length===0;els.btnReset.disabled=state.pessoas.length===0;}
+
+    els.selPessoa.addEventListener('change',updateControlsForPessoa);function updateControlsForPessoa(){const nome=els.selPessoa.value;const naVez=!!nome&&isPessoaNaVez(nome);els.selVaga.disabled=!naVez||state.vagas.length===0;els.btnConfirmar.disabled=!naVez||!els.selVaga.value;const prox=proximoDaVez();if(!nome){els.statusTurno.textContent='Selecione seu nome para verificar a vez.';return;}if(naVez){els.statusTurno.textContent=`É sua vez, ${nome}.`;els.statusTurno.className='status ok';}else{els.statusTurno.textContent=`Ainda não é sua vez. Agora é a vez de ${prox.nome}.`;els.statusTurno.className='status warn';}repopulateSelVaga();}
+
+    els.selVaga.addEventListener('change',()=>{els.btnConfirmar.disabled=!els.selPessoa.value||!isPessoaNaVez(els.selPessoa.value)||!els.selVaga.value;});
+
+    els.btnConfirmar.addEventListener('click',()=>{const nome=els.selPessoa.value;if(!nome)return;const vKey=els.selVaga.value;if(!vKey)return;if(!isPessoaNaVez(nome))return alert('Não é a sua vez.');const [localidade,odgsa,om]=vKey.split('||');const p=getPessoa(nome);state.atribuicoes.push({nome:p.nome,classificacao:p.classificacao,localidade,odgsa,om,ts:Date.now()});const idx=state.vagas.findIndex(v=>v.localidade===localidade&&v.odgsa===odgsa&&v.om===om);if(idx>=0)state.vagas.splice(idx,1);save();repopulateSelPessoa();repopulateSelVaga();renderResultados();updateControlsForPessoa();alert(`Escolha registrada: ${p.nome} → ${localidade} · ${odgsa} · ${om}`);});
+
+    els.btnExportar.addEventListener('click',()=>{const header=['CLASSIFICACAO','NOME_GUERRA','LOCALIDADE','ODGSA','OM','TIMESTAMP'];const lines=[header.join(',')].concat(state.atribuicoes.map(a=>[a.classificacao,'"'+a.nome+'"','"'+a.localidade+'"','"'+a.odgsa+'"','"'+a.om+'"',new Date(a.ts).toISOString()].join(',')));const blob=new Blob([lines.join('\n')+'\n'],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='escolhas_eaof2025
