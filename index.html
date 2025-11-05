@@ -35,8 +35,7 @@
 </head>
 <body>
   <header class="container">
-    <h1>Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</h1>
-    <p class="subtitle">Dados centrais no servidor (planilha). CSVs base no repositório: <code>classificacao.csv</code> e <code>vagas.csv</code> com colunas <strong>VAGA, LOCALIDADE, ODGSA, OM</strong>.</p>
+    <h1>Simulador de Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</h1>
   </header>
 
   <main class="container">
@@ -114,7 +113,22 @@
     const els={ selPessoa:document.getElementById('selPessoa'), selVaga:document.getElementById('selVaga'), btnConfirmar:document.getElementById('btnConfirmar'), statusTurno:document.getElementById('statusTurno'), statusLoad:document.getElementById('statusLoad'), tagTurno:document.getElementById('tagTurno'), tbodyResultados:document.getElementById('tbodyResultados'), resumo:document.getElementById('resumo'), btnExportar:document.getElementById('btnExportar'), btnAdmin:document.getElementById('btnAdmin'), btnUndo:document.getElementById('btnUndo'), btnReset:document.getElementById('btnReset') };
 
     // ===== Backend (Apps Script) =====
-    async function backendGetState(){ const res = await fetch(`${BACKEND_URL}?action=state`, { cache:'no-store' }); if(!res.ok) throw new Error('Falha ao obter estado do servidor'); return res.json(); }
+    async function backendGetState(){
+      let res;
+      try {
+        res = await fetch(`${BACKEND_URL}?action=state`, { cache:'no-store' });
+      } catch (e) {
+        throw new Error("Falha de rede ao consultar o backend (Worker). Detalhe: " + e);
+      }
+      let text = await res.text();
+      try {
+        const j = JSON.parse(text);
+        if (j.error) throw new Error(j.error);
+        return j;
+      } catch (e) {
+        throw new Error(`Resposta não-JSON do backend. Status ${res.status}. Corpo: ${text.slice(0,200)}...`);
+      }
+    }   
     async function backendChoose(payload){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'choose', ...payload }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao registrar escolha'); return j; }
     async function backendUndo(pin){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', pin }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao desfazer'); return j; }
     async function backendReset(pin){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'reset', pin }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao resetar'); return j; }
