@@ -35,7 +35,8 @@
 </head>
 <body>
   <header class="container">
-    <h1>Simulador de Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</h1>
+    <h1>Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</h1>
+    <p class="subtitle">Dados centrais no servidor (planilha). CSVs base no repositório: <code>classificacao.csv</code> e <code>vagas.csv</code> com colunas <strong>VAGA, LOCALIDADE, ODGSA, OM</strong>.</p>
   </header>
 
   <main class="container">
@@ -100,6 +101,16 @@
     const BACKEND_URL = 'https://simulador-escolha-vagas-sva-petrus.danielroos-rj.workers.dev';
 
     // ===== Utilidades =====
+    (function sanityURL(){
+      try{
+        const u = new URL(BACKEND_URL);
+        if(!/^https:/.test(u.protocol)) throw new Error('BACKEND_URL deve usar https');
+      }catch(e){
+        const msg='BACKEND_URL inválida. Verifique se é a URL do seu Worker.';
+        alert(msg); console.error(msg, e);
+        throw e;
+      }
+    })();
     function detectSeparator(text){ const firstLine=(text.split(/\r?\n/).find(l=>l.trim())||''); const c=(firstLine.match(/,/g)||[]).length; const s=(firstLine.match(/;/g)||[]).length; return s>c?';':','; }
     function parseCSV(text, sep){ const rows=[]; let row=[], cur='', inQ=false; for(let i=0;i<text.length;i++){ const ch=text[i], nx=text[i+1]; if(ch==='"'){ if(inQ && nx==='"'){cur+='"'; i++;} else inQ=!inQ; } else if(ch===sep && !inQ){ row.push(cur); cur=''; } else if((ch==='\n'||ch==='\r')&&!inQ){ if(cur!==''||row.length){row.push(cur); rows.push(row); row=[]; cur='';} if(ch==='\r'&&nx==='\n') i++; } else { cur+=ch; } } if(cur!==''||row.length){row.push(cur); rows.push(row);} return rows; }
     function normHeader(h){ return String(h||'').trim().toUpperCase(); }
@@ -115,23 +126,41 @@
     // ===== Backend (Apps Script) =====
     async function backendGetState(){
       let res;
-      try {
+      try{
         res = await fetch(`${BACKEND_URL}?action=state`, { cache:'no-store' });
-      } catch (e) {
-        throw new Error("Falha de rede ao consultar o backend (Worker). Detalhe: " + e);
+      }catch(e){
+        throw new Error('Falha de rede ao consultar o backend (Worker). Detalhe: '+e);
       }
-      let text = await res.text();
-      try {
+      const text = await res.text();
+      try{
         const j = JSON.parse(text);
-        if (j.error) throw new Error(j.error);
+        if(j.error) throw new Error(j.error);
         return j;
-      } catch (e) {
+      }catch(e){
         throw new Error(`Resposta não-JSON do backend. Status ${res.status}. Corpo: ${text.slice(0,200)}...`);
       }
-    }   
-    async function backendChoose(payload){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'choose', ...payload }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao registrar escolha'); return j; }
-    async function backendUndo(pin){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', pin }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao desfazer'); return j; }
-    async function backendReset(pin){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'reset', pin }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao resetar'); return j; }
+    }?action=state`, { cache:'no-store' }); if(!res.ok) throw new Error('Falha ao obter estado do servidor'); return res.json(); }
+    async function backendChoose(payload){
+      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'choose', ...payload }) });
+      const text = await res.text();
+      let j; try{ j = JSON.parse(text); }catch{ throw new Error(`Backend (choose) não-JSON. Status ${res.status}. Corpo: ${text.slice(0,200)}...`); }
+      if(!res.ok || j.error) throw new Error(j.error||'Falha ao registrar escolha');
+      return j;
+    }
+    async function backendUndo(pin){
+      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', pin }) });
+      const text = await res.text();
+      let j; try{ j = JSON.parse(text); }catch{ throw new Error(`Backend (undo) não-JSON. Status ${res.status}. Corpo: ${text.slice(0,200)}...`); }
+      if(!res.ok || j.error) throw new Error(j.error||'Falha ao desfazer');
+      return j;
+    }
+    async function backendReset(pin){
+      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'reset', pin }) });
+      const text = await res.text();
+      let j; try{ j = JSON.parse(text); }catch{ throw new Error(`Backend (reset) não-JSON. Status ${res.status}. Corpo: ${text.slice(0,200)}...`); }
+      if(!res.ok || j.error) throw new Error(j.error||'Falha ao resetar');
+      return j;
+    }
 
     // ===== Fetch dos CSVs e do estado do servidor =====
     async function fetchCsv(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error(`Falha ao carregar ${url}`); const text=await res.text(); const sep=detectSeparator(text); return parseCSV(text,sep).filter(r=>r.some(c=>String(c).trim()!=='')); }
