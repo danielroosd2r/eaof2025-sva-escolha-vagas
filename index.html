@@ -97,7 +97,7 @@
     const CLASSIF_URL = 'classificacao.csv'; // base de pessoas (GitHub Pages)
     const VAGAS_URL   = 'vagas.csv';         // base de vagas (GitHub Pages)
     // ➜ Substitua pela URL do seu Apps Script (implantado como Web App "Qualquer pessoa com o link")
-    const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbzAs8mIRiTUqGpOZTVhaIAB2DC-S2q5Pxo5P-oUBpUBvJWt-JY3ILLA0RJY0tD9wcaZ/exec';
+    const BACKEND_URL = 'https://simulador-escolha-vagas-sva-petrus.danielroos-rj.workers.dev/';
 
     // ===== Utilidades =====
     function detectSeparator(text){ const firstLine=(text.split(/\r?\n/).find(l=>l.trim())||''); const c=(firstLine.match(/,/g)||[]).length; const s=(firstLine.match(/;/g)||[]).length; return s>c?';':','; }
