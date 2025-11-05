@@ -3,12 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Simulador de Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</title>
+  <title>Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</title>
   <style>
-    :root{
-      --bg:#0b1220; --card:#0f1a30; --muted:#8aa0bd; --text:#eaf0ff;
-      --accent:#3aa2ff; --ok:#76d275; --warn:#ffb74d; --err:#ff6e6e; --border:#1f2a44;
-    }
+    :root{ --bg:#0b1220; --card:#0f1a30; --muted:#8aa0bd; --text:#eaf0ff; --accent:#3aa2ff; --ok:#76d275; --warn:#ffb74d; --err:#ff6e6e; --border:#1f2a44; }
     *{box-sizing:border-box}
     body{margin:0; font:400 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif; background:var(--bg); color:var(--text)}
     .container{max-width:1100px; margin:0 auto; padding:20px}
@@ -38,8 +35,8 @@
 </head>
 <body>
   <header class="container">
-    <h1>Simulador Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</h1>
-    <p class="subtitle">Dados carregados automaticamente de <code>classificacao.csv</code> e <code>vagas.csv</code> (repositório). A escolha respeita a ordem de CLASSIFICACAO.</p>
+    <h1>Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</h1>
+    <p class="subtitle">Dados centrais no servidor (planilha). CSVs do repositório continuam como base de nomes/vagas.</p>
   </header>
 
   <main class="container">
@@ -53,7 +50,7 @@
         <span id="tagTurno" class="pill">vez: —</span>
       </div>
       <div class="row">
-        <label for="selVaga">Vaga disponível (LOCALIDADE · ODGSA · OM)</label>
+        <label for="selVaga">Vaga (LOCALIDADE · ODGSA · OM)</label>
         <select id="selVaga" disabled>
           <option value="">— carregando… —</option>
         </select>
@@ -92,78 +89,81 @@
     </section>
   </main>
 
-  <footer class="container small">Dados persistem localmente (localStorage). Apenas administrador pode desfazer e reiniciar.</footer>
+  <footer class="container small">Estado compartilhado entre todos os usuários. Admin: desfazer/reiniciar mediante PIN.</footer>
 
   <script>
     // ===== Configurações =====
-    const ADMIN_PIN = '0138'; // 🔐 PIN solicitado
-    const CLASSIF_URL = 'classificacao.csv'; // relativo ao site
-    const VAGAS_URL   = 'vagas.csv';         // relativo ao site
+    const ADMIN_PIN = '0138'; // 🔐 PIN
+    const CLASSIF_URL = 'classificacao.csv'; // base de pessoas (GitHub Pages)
+    const VAGAS_URL   = 'vagas.csv';         // base de vagas (GitHub Pages)
+    // ➜ Substitua pela URL do seu Apps Script (implantado como Web App "Qualquer pessoa com o link")
+    const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxErTj0ixscWXLMwEhBSwlLFxToufP_Lmgy7IiVmn0c4rCqmSpfe9HSSGgdwtIqcLMr/exec';
 
-    // ===== Utilidades CSV =====
+    // ===== Utilidades =====
     function detectSeparator(text){ const firstLine=(text.split(/\r?\n/).find(l=>l.trim())||''); const c=(firstLine.match(/,/g)||[]).length; const s=(firstLine.match(/;/g)||[]).length; return s>c?';':','; }
     function parseCSV(text, sep){ const rows=[]; let row=[], cur='', inQ=false; for(let i=0;i<text.length;i++){ const ch=text[i], nx=text[i+1]; if(ch==='"'){ if(inQ && nx==='"'){cur+='"'; i++;} else inQ=!inQ; } else if(ch===sep && !inQ){ row.push(cur); cur=''; } else if((ch==='\n'||ch==='\r')&&!inQ){ if(cur!==''||row.length){row.push(cur); rows.push(row); row=[]; cur='';} if(ch==='\r'&&nx==='\n') i++; } else { cur+=ch; } } if(cur!==''||row.length){row.push(cur); rows.push(row);} return rows; }
     function normHeader(h){ return String(h||'').trim().toUpperCase(); }
-    function escapeHtml(s){ return String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
+    function escapeHtml(s){ return String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
     function escapeAttr(s){ return escapeHtml(s).replaceAll('"','&quot;'); }
 
-    // ===== Estado/Persistência =====
+    // ===== Estado (sem localStorage; tudo do servidor) =====
     const state = { pessoas:[], vagas:[], atribuicoes:[] };
-    const LS_KEY='eaof2025_sva_pages_v2';
-    function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
-    function load(){ try{ const s=localStorage.getItem(LS_KEY); if(s){ const o=JSON.parse(s); if(o){ state.pessoas=o.pessoas||[]; state.vagas=o.vagas||[]; state.atribuicoes=o.atribuicoes||[]; } } }catch(e){} }
 
     // ===== DOM =====
     const els={ selPessoa:document.getElementById('selPessoa'), selVaga:document.getElementById('selVaga'), btnConfirmar:document.getElementById('btnConfirmar'), statusTurno:document.getElementById('statusTurno'), statusLoad:document.getElementById('statusLoad'), tagTurno:document.getElementById('tagTurno'), tbodyResultados:document.getElementById('tbodyResultados'), resumo:document.getElementById('resumo'), btnExportar:document.getElementById('btnExportar'), btnAdmin:document.getElementById('btnAdmin'), btnUndo:document.getElementById('btnUndo'), btnReset:document.getElementById('btnReset') };
 
-    // ===== Fetch de dados do repositório =====
-    async function fetchCsv(url){
-      const res = await fetch(url, { cache: 'no-store' });
-      if(!res.ok) throw new Error(`Falha ao carregar ${url}: HTTP ${res.status}`);
-      const text = await res.text();
-      const sep = detectSeparator(text);
-      const rows = parseCSV(text, sep).filter(r=>r.some(c=>String(c).trim()!==''));
-      return rows;
+    // ===== Backend (Apps Script) =====
+    async function backendGetState(){
+      const res = await fetch(`${BACKEND_URL}?action=state`, { cache:'no-store' });
+      if(!res.ok) throw new Error('Falha ao obter estado do servidor');
+      return res.json(); // {atribuicoes:[...]} ou estrutura semelhante
+    }
+    async function backendChoose(payload){
+      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'choose', ...payload }) });
+      const j = await res.json();
+      if(!res.ok || j.error) throw new Error(j.error||'Falha ao registrar escolha');
+      return j; // deve retornar {ok:true}
+    }
+    async function backendUndo(pin){
+      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', pin }) });
+      const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao desfazer'); return j;
+    }
+    async function backendReset(pin){
+      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'reset', pin }) });
+      const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao resetar'); return j;
     }
 
-    async function loadRemoteData(){
-      els.statusLoad.textContent = 'Carregando classificacao.csv e vagas.csv…';
-      try{
-        const [pRows, vRows] = await Promise.all([ fetchCsv(CLASSIF_URL), fetchCsv(VAGAS_URL) ]);
-        // Pessoas
-        const pHeaders = pRows[0].map(normHeader);
-        const iClass = pHeaders.indexOf('CLASSIFICACAO');
-        const iNome  = pHeaders.indexOf('NOME_GUERRA');
-        if(iClass<0 || iNome<0) throw new Error('classificacao.csv sem CLASSIFICACAO/NOME_GUERRA');
-        const pessoas = pRows.slice(1).map(r=>({ nome:String(r[iNome]||'').trim(), classificacao:Number(String(r[iClass]||'').trim()) })).filter(p=>p.nome && Number.isFinite(p.classificacao));
-        pessoas.sort((a,b)=>a.classificacao-b.classificacao || a.nome.localeCompare(b.nome));
-        // Vagas (agora SEM remover as ocupadas; apenas marcamos como indisponíveis)
-        const vHeaders = vRows[0].map(normHeader);
-        const iLoc = vHeaders.indexOf('LOCALIDADE');
-        const iOdg = vHeaders.indexOf('ODGSA');
-        const iOm  = vHeaders.indexOf('OM');
-        if(iLoc<0 || iOdg<0 || iOm<0) throw new Error('vagas.csv sem LOCALIDADE/ODGSA/OM');
-        const vagas = vRows.slice(1).map(r=>{
-          const localidade=String(r[iLoc]||'').trim();
-          const odgsa=String(r[iOdg]||'').trim();
-          const om=String(r[iOm]||'').trim();
-          if(!localidade||!odgsa||!om) return null;
-          return {localidade, odgsa, om, label:`${localidade} · ${odgsa} · ${om}`};
-        }).filter(Boolean);
+    // ===== Fetch dos CSVs e do estado do servidor =====
+    async function fetchCsv(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error(`Falha ao carregar ${url}`); const text=await res.text(); const sep=detectSeparator(text); return parseCSV(text,sep).filter(r=>r.some(c=>String(c).trim()!=='')); }
 
-        state.pessoas = pessoas;
-        state.vagas   = vagas; // mantém todas as vagas, disponíveis ou não
-        save();
-        els.statusLoad.textContent = `Dados prontos (pessoas: ${pessoas.length}; vagas: ${vagas.length}).`;
-        els.statusLoad.className = 'status ok';
-        repopulateSelPessoa();
-        repopulateSelVaga();
-        renderResultados();
-        updateControlsForPessoa();
-      }catch(err){
-        els.statusLoad.textContent = String(err.message||err);
-        els.statusLoad.className = 'status err';
-      }
+    async function loadAll(){
+      els.statusLoad.textContent = 'Sincronizando com o servidor…';
+      try{
+        const [pRows, vRows, server] = await Promise.all([ fetchCsv(CLASSIF_URL), fetchCsv(VAGAS_URL), backendGetState() ]);
+        // Pessoas
+        const pH=pRows[0].map(normHeader); const iC=pH.indexOf('CLASSIFICACAO'); const iN=pH.indexOf('NOME_GUERRA');
+        if(iC<0||iN<0) throw new Error('classificacao.csv sem CLASSIFICACAO/NOME_GUERRA');
+        const pessoas=pRows.slice(1).map(r=>({nome:String(r[iN]||'').trim(), classificacao:Number(String(r[iC]||'').trim())})).filter(p=>p.nome&&Number.isFinite(p.classificacao));
+        pessoas.sort((a,b)=>a.classificacao-b.classificacao||a.nome.localeCompare(b.nome));
+        // Vagas
+        const vH=vRows[0].map(normHeader); const iLoc=vH.indexOf('LOCALIDADE'); const iOdg=vH.indexOf('ODGSA'); const iOm=vH.indexOf('OM');
+        if(iLoc<0||iOdg<0||iOm<0) throw new Error('vagas.csv sem LOCALIDADE/ODGSA/OM');
+        const vagas=vRows.slice(1).map(r=>{const localidade=String(r[iLoc]||'').trim(); const odgsa=String(r[iOdg]||'').trim(); const om=String(r[iOm]||'').trim(); if(!localidade||!odgsa||!om) return null; return {localidade,odgsa,om,label:`${localidade} · ${odgsa} · ${om}`};}).filter(Boolean);
+        // Estado servidor
+        const atribuicoes = (server.atribuicoes||[]).map(a=>({
+          classificacao:Number(a.CLASSIFICACAO||a.classificacao),
+          nome:String(a.NOME_GUERRA||a.nome),
+          localidade:String(a.LOCALIDADE||a.localidade||''),
+          odgsa:String(a.ODGSA||a.odgsa||''),
+          om:String(a.OM||a.om||''),
+          ts: a.TIMESTAMP? Date.parse(a.TIMESTAMP): (a.ts? Number(a.ts): Date.now())
+        })).sort((a,b)=>a.classificacao-b.classificacao||a.ts-b.ts);
+
+        state.pessoas=pessoas; state.vagas=vagas; state.atribuicoes=atribuicoes;
+        repopulateSelPessoa(); repopulateSelVaga(); renderResultados(); updateControlsForPessoa();
+        els.statusLoad.textContent = `Sincronizado (pessoas: ${pessoas.length}; escolhas: ${atribuicoes.length}; vagas: ${vagas.length}).`;
+        els.statusLoad.className='status ok';
+      }catch(e){ els.statusLoad.textContent=String(e.message||e); els.statusLoad.className='status err'; }
     }
 
     // ===== Lógica de vez =====
@@ -174,26 +174,21 @@
     // ===== UI: selects =====
     function repopulateSelPessoa(){
       const sel=els.selPessoa; sel.innerHTML='';
-      const prox = proximoDaVez();
-      const options = state.pessoas.map(p=>{
+      const prox=proximoDaVez();
+      sel.innerHTML = `<option value="">${prox? 'Selecione seu nome' : 'Concluído'}</option>` + state.pessoas.map(p=>{
         const isTurn = prox && p.nome===prox.nome;
         const chosen = state.atribuicoes.some(a=>a.nome===p.nome);
         const label = `${escapeHtml(p.nome)} (class. ${p.classificacao})${chosen?' — escolhido':''}`;
         return `<option value="${escapeAttr(p.nome)}" ${isTurn? '' : 'disabled'} ${chosen?'data-chosen="1"':''}>${label}</option>`;
       }).join('');
-      sel.innerHTML = `<option value="">${prox? 'Selecione seu nome' : 'Concluído'}</option>` + options;
-      sel.disabled = !prox; // só habilita quando há alguém na vez
+      sel.disabled = !prox;
       els.tagTurno.textContent = prox ? `vez: ${prox.nome} (#${prox.classificacao})` : 'vez: — (concluído)';
     }
 
     function repopulateSelVaga(){
       const sel=els.selVaga; sel.innerHTML='';
-      const ocupadas = new Set(state.atribuicoes.map(a=>`${a.localidade}||${a.odgsa}||${a.om}`));
-      const options = state.vagas.map(v=>{
-        const key = `${v.localidade}||${v.odgsa}||${v.om}`;
-        const taken = ocupadas.has(key);
-        return `<option value="${escapeAttr(key)}" ${taken? 'disabled' : ''}>${escapeHtml(v.label)}${taken?' (indisponível)':''}</option>`;
-      }).join('');
+      const ocupadas=new Set(state.atribuicoes.map(a=>`${a.localidade}||${a.odgsa}||${a.om}`));
+      const options = state.vagas.map(v=>{ const key=`${v.localidade}||${v.odgsa}||${v.om}`; const taken=ocupadas.has(key); return `<option value="${escapeAttr(key)}" ${taken?'disabled':''}>${escapeHtml(v.label)}${taken?' (indisponível)':''}</option>`; }).join('');
       sel.innerHTML = '<option value="">— selecione —</option>' + options;
       sel.disabled = state.vagas.length===0 || !els.selPessoa.value || !isPessoaNaVez(els.selPessoa.value);
     }
@@ -206,88 +201,42 @@
         return `<tr><td>${a.classificacao}</td><td>${escapeHtml(a.nome)}</td><td>${escapeHtml(a.localidade)}</td><td>${escapeHtml(a.odgsa)}</td><td>${escapeHtml(a.om)}</td><td>${ts}</td></tr>`;
       }).join('');
       const prox=proximoDaVez();
-      els.resumo.textContent = `${state.atribuicoes.length}/${state.pessoas.length} concluídas — vagas restantes: ${state.vagas.length - state.atribuicoes.length}`;
-      els.statusTurno.className = 'status '+(prox? 'warn':'ok');
+      els.resumo.textContent = `${state.atribuicoes.length}/${state.pessoas.length} concluídas — vagas marcadas: ${state.vagas.length}`;
+      els.statusTurno.className='status '+(prox?'warn':'ok');
       els.statusTurno.textContent = prox ? `Agora é a vez de ${prox.nome} (CLASSIFICACAO ${prox.classificacao}).` : 'Todas as escolhas foram concluídas.';
       els.btnExportar.disabled = state.atribuicoes.length===0;
     }
 
     // ===== Eventos =====
-    els.selPessoa.addEventListener('change', ()=>{
-      updateControlsForPessoa();
-    });
+    els.selPessoa.addEventListener('change', updateControlsForPessoa);
+    function updateControlsForPessoa(){ const nome=els.selPessoa.value; const naVez=!!nome && isPessoaNaVez(nome); els.selVaga.disabled=!naVez||state.vagas.length===0; els.btnConfirmar.disabled=!naVez||!els.selVaga.value; repopulateSelVaga(); }
+    els.selVaga.addEventListener('change', ()=>{ els.btnConfirmar.disabled=!els.selPessoa.value||!isPessoaNaVez(els.selPessoa.value)||!els.selVaga.value; });
 
-    function updateControlsForPessoa(){
-      const nome=els.selPessoa.value; const naVez=!!nome && isPessoaNaVez(nome);
-      els.selVaga.disabled = !naVez || state.vagas.length===0;
-      els.btnConfirmar.disabled = !naVez || !els.selVaga.value;
-      repopulateSelVaga();
-    }
-
-    els.selVaga.addEventListener('change', ()=>{
-      els.btnConfirmar.disabled = !els.selPessoa.value || !isPessoaNaVez(els.selPessoa.value) || !els.selVaga.value;
-    });
-
-    els.btnConfirmar.addEventListener('click', ()=>{
+    els.btnConfirmar.addEventListener('click', async ()=>{
       const nome=els.selPessoa.value; const vKey=els.selVaga.value; if(!nome||!vKey) return;
       if(!isPessoaNaVez(nome)) return alert('Não é a sua vez.');
       const [localidade,odgsa,om]=vKey.split('||'); const p=getPessoa(nome);
-      state.atribuicoes.push({ nome:p.nome, classificacao:p.classificacao, localidade, odgsa, om, ts:Date.now() });
-      save();
-      els.selPessoa.value='';
-      repopulateSelPessoa();
-      repopulateSelVaga();
-      renderResultados();
-      updateControlsForPessoa();
-      alert(`Escolha registrada: ${p.nome} → ${localidade} · ${odgsa} · ${om}`);
+      try{
+        els.btnConfirmar.disabled=true;
+        const resp = await backendChoose({ nome:p.nome, classificacao:p.classificacao, localidade, odgsa, om });
+        if(resp && resp.ok){ await loadAll(); alert(`Escolha registrada: ${p.nome} → ${localidade} · ${odgsa} · ${om}`); }
+      }catch(e){ alert('Erro: '+(e.message||e)); els.btnConfirmar.disabled=false; }
     });
 
-    // ===== Exportar / Admin / Desfazer / Reset =====
     els.btnExportar.addEventListener('click', ()=>{
       const header=['CLASSIFICACAO','NOME_GUERRA','LOCALIDADE','ODGSA','OM','TIMESTAMP'];
-      const lines=[header.join(',')].concat(state.atribuicoes.map(a=>[
-        a.classificacao, '"'+a.nome.replaceAll('"','""')+'"', '"'+a.localidade.replaceAll('"','""')+'"', '"'+a.odgsa.replaceAll('"','""')+'"', '"'+a.om.replaceAll('"','""')+'"', new Date(a.ts).toISOString()
-      ].join(',')));
-      const blob=new Blob([lines.join('\n')+'\n'], {type:'text/csv;charset=utf-8'});
-      const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='escolhas_eaof2025.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 800);
+      const lines=[header.join(',')].concat(state.atribuicoes.map(a=>[a.classificacao, '"'+a.nome.replaceAll('"','""')+'"', '"'+a.localidade.replaceAll('"','""')+'"', '"'+a.odgsa.replaceAll('"','""')+'"', '"'+a.om.replaceAll('"','""')+'"', new Date(a.ts).toISOString()].join(',')));
+      const blob=new Blob([lines.join('\n')+'\n'], {type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='escolhas_eaof2025.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 800);
     });
 
     function requireAdmin(msg){ const pin = prompt(msg||'PIN do administrador:'); return pin===ADMIN_PIN; }
+    els.btnAdmin.addEventListener('click', ()=>{ if(requireAdmin('PIN do administrador:')){ alert('Admin habilitado. Desfazer e Reiniciar disponíveis.'); els.btnUndo.style.display='inline-block'; els.btnReset.style.display='inline-block'; } else { alert('PIN incorreto.'); } });
 
-    els.btnAdmin.addEventListener('click', ()=>{
-      if(requireAdmin('PIN do administrador:')){
-        alert('Admin habilitado. Botões Desfazer/Reiniciar disponíveis.');
-        els.btnUndo.style.display='inline-block';
-        els.btnReset.style.display='inline-block';
-      } else {
-        alert('PIN incorreto.');
-      }
-    });
-
-    els.btnUndo.addEventListener('click', ()=>{
-      if(!requireAdmin('Confirme o PIN para desfazer a última escolha:')) return;
-      if(state.atribuicoes.length===0) return alert('Não há escolhas para desfazer.');
-      const ultima = state.atribuicoes[state.atribuicoes.length-1];
-      if(!confirm(`Desfazer a última escolha?\n${ultima.classificacao} - ${ultima.nome}\n${ultima.localidade} · ${ultima.odgsa} · ${ultima.om}`)) return;
-      state.atribuicoes.pop();
-      save();
-      repopulateSelPessoa();
-      repopulateSelVaga();
-      renderResultados();
-      updateControlsForPessoa();
-      alert('Última escolha desfeita.');
-    });
-
-    els.btnReset.addEventListener('click', ()=>{
-      if(!requireAdmin('Confirme o PIN para reiniciar:')) return;
-      if(!confirm('Tem certeza que deseja limpar todas as escolhas e recarregar os dados?')) return;
-      state.atribuicoes=[]; save();
-      loadRemoteData();
-    });
+    els.btnUndo.addEventListener('click', async ()=>{ if(!requireAdmin('Confirme o PIN para desfazer a última escolha:')) return; try{ await backendUndo(ADMIN_PIN); await loadAll(); alert('Última escolha desfeita.'); }catch(e){ alert('Erro: '+(e.message||e)); } });
+    els.btnReset.addEventListener('click', async ()=>{ if(!requireAdmin('Confirme o PIN para reiniciar:')) return; if(!confirm('Tem certeza que deseja limpar todas as escolhas?')) return; try{ await backendReset(ADMIN_PIN); await loadAll(); alert('Escolhas reiniciadas.'); }catch(e){ alert('Erro: '+(e.message||e)); } });
 
     // ===== Init =====
-    load();
-    loadRemoteData();
+    loadAll();
   </script>
 </body>
 </html>
