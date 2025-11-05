@@ -25,7 +25,7 @@
     .status.warn{color:var(--warn)}
     .status.err{color:var(--err)}
     .table-wrapper{overflow:auto; border:1px solid var(--border); border-radius:10px}
-    table{width:100%; min-width:740px; border-collapse:separate; border-spacing:0}
+    table{width:100%; min-width:860px; border-collapse:separate; border-spacing:0}
     th,td{padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; text-align:left}
     thead th{position:sticky; top:0; background:#12203a}
     tbody tr:nth-child(even){background:#0e172b}
@@ -36,7 +36,7 @@
 <body>
   <header class="container">
     <h1>Escolha de vagas de SVA - EAOF 2025 - Turma Petrus</h1>
-    <p class="subtitle">Dados centrais no servidor (planilha). CSVs do repositório continuam como base de nomes/vagas.</p>
+    <p class="subtitle">Dados centrais no servidor (planilha). CSVs base no repositório: <code>classificacao.csv</code> e <code>vagas.csv</code> com colunas <strong>VAGA, LOCALIDADE, ODGSA, OM</strong>.</p>
   </header>
 
   <main class="container">
@@ -50,7 +50,7 @@
         <span id="tagTurno" class="pill">vez: —</span>
       </div>
       <div class="row">
-        <label for="selVaga">Vaga (LOCALIDADE · ODGSA · OM)</label>
+        <label for="selVaga">Vaga (VAGA · LOCALIDADE · ODGSA · OM)</label>
         <select id="selVaga" disabled>
           <option value="">— carregando… —</option>
         </select>
@@ -77,6 +77,7 @@
             <tr>
               <th># CLASSIFICACAO</th>
               <th>NOME_GUERRA</th>
+              <th>VAGA</th>
               <th>LOCALIDADE</th>
               <th>ODGSA</th>
               <th>OM</th>
@@ -95,9 +96,9 @@
     // ===== Configurações =====
     const ADMIN_PIN = '0138'; // 🔐 PIN
     const CLASSIF_URL = 'classificacao.csv'; // base de pessoas (GitHub Pages)
-    const VAGAS_URL   = 'vagas.csv';         // base de vagas (GitHub Pages)
-    // ➜ Substitua pela URL do seu Apps Script (implantado como Web App "Qualquer pessoa com o link")
-    const BACKEND_URL = 'https://simulador-escolha-vagas-sva-petrus.danielroos-rj.workers.dev/';
+    const VAGAS_URL   = 'vagas.csv';         // base de vagas (GitHub Pages) — agora com VAGA, LOCALIDADE, ODGSA, OM
+    // ➜ Substitua pela URL do seu Apps Script (ou proxy) implantado como Web App "Qualquer pessoa com o link"
+    const BACKEND_URL = 'https://script.google.com/macros/s/SEU_DEPLOY_ID/exec';
 
     // ===== Utilidades =====
     function detectSeparator(text){ const firstLine=(text.split(/\r?\n/).find(l=>l.trim())||''); const c=(firstLine.match(/,/g)||[]).length; const s=(firstLine.match(/;/g)||[]).length; return s>c?';':','; }
@@ -106,32 +107,17 @@
     function escapeHtml(s){ return String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
     function escapeAttr(s){ return escapeHtml(s).replaceAll('"','&quot;'); }
 
-    // ===== Estado (sem localStorage; tudo do servidor) =====
+    // ===== Estado =====
     const state = { pessoas:[], vagas:[], atribuicoes:[] };
 
     // ===== DOM =====
     const els={ selPessoa:document.getElementById('selPessoa'), selVaga:document.getElementById('selVaga'), btnConfirmar:document.getElementById('btnConfirmar'), statusTurno:document.getElementById('statusTurno'), statusLoad:document.getElementById('statusLoad'), tagTurno:document.getElementById('tagTurno'), tbodyResultados:document.getElementById('tbodyResultados'), resumo:document.getElementById('resumo'), btnExportar:document.getElementById('btnExportar'), btnAdmin:document.getElementById('btnAdmin'), btnUndo:document.getElementById('btnUndo'), btnReset:document.getElementById('btnReset') };
 
     // ===== Backend (Apps Script) =====
-    async function backendGetState(){
-      const res = await fetch(`${BACKEND_URL}?action=state`, { cache:'no-store' });
-      if(!res.ok) throw new Error('Falha ao obter estado do servidor');
-      return res.json(); // {atribuicoes:[...]} ou estrutura semelhante
-    }
-    async function backendChoose(payload){
-      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'choose', ...payload }) });
-      const j = await res.json();
-      if(!res.ok || j.error) throw new Error(j.error||'Falha ao registrar escolha');
-      return j; // deve retornar {ok:true}
-    }
-    async function backendUndo(pin){
-      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', pin }) });
-      const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao desfazer'); return j;
-    }
-    async function backendReset(pin){
-      const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'reset', pin }) });
-      const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao resetar'); return j;
-    }
+    async function backendGetState(){ const res = await fetch(`${BACKEND_URL}?action=state`, { cache:'no-store' }); if(!res.ok) throw new Error('Falha ao obter estado do servidor'); return res.json(); }
+    async function backendChoose(payload){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'choose', ...payload }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao registrar escolha'); return j; }
+    async function backendUndo(pin){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', pin }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao desfazer'); return j; }
+    async function backendReset(pin){ const res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'reset', pin }) }); const j = await res.json(); if(!res.ok || j.error) throw new Error(j.error||'Falha ao resetar'); return j; }
 
     // ===== Fetch dos CSVs e do estado do servidor =====
     async function fetchCsv(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error(`Falha ao carregar ${url}`); const text=await res.text(); const sep=detectSeparator(text); return parseCSV(text,sep).filter(r=>r.some(c=>String(c).trim()!=='')); }
@@ -145,14 +131,19 @@
         if(iC<0||iN<0) throw new Error('classificacao.csv sem CLASSIFICACAO/NOME_GUERRA');
         const pessoas=pRows.slice(1).map(r=>({nome:String(r[iN]||'').trim(), classificacao:Number(String(r[iC]||'').trim())})).filter(p=>p.nome&&Number.isFinite(p.classificacao));
         pessoas.sort((a,b)=>a.classificacao-b.classificacao||a.nome.localeCompare(b.nome));
-        // Vagas
-        const vH=vRows[0].map(normHeader); const iLoc=vH.indexOf('LOCALIDADE'); const iOdg=vH.indexOf('ODGSA'); const iOm=vH.indexOf('OM');
-        if(iLoc<0||iOdg<0||iOm<0) throw new Error('vagas.csv sem LOCALIDADE/ODGSA/OM');
-        const vagas=vRows.slice(1).map(r=>{const localidade=String(r[iLoc]||'').trim(); const odgsa=String(r[iOdg]||'').trim(); const om=String(r[iOm]||'').trim(); if(!localidade||!odgsa||!om) return null; return {localidade,odgsa,om,label:`${localidade} · ${odgsa} · ${om}`};}).filter(Boolean);
+        // Vagas (agora com VAGA)
+        const vH=vRows[0].map(normHeader);
+        const iV=vH.indexOf('VAGA');
+        const iLoc=vH.indexOf('LOCALIDADE');
+        const iOdg=vH.indexOf('ODGSA');
+        const iOm=vH.indexOf('OM');
+        if(iV<0||iLoc<0||iOdg<0||iOm<0) throw new Error('vagas.csv sem VAGA/LOCALIDADE/ODGSA/OM');
+        const vagas=vRows.slice(1).map(r=>{const vaga=String(r[iV]||'').trim(); const localidade=String(r[iLoc]||'').trim(); const odgsa=String(r[iOdg]||'').trim(); const om=String(r[iOm]||'').trim(); if(!vaga||!localidade||!odgsa||!om) return null; return {vaga, localidade, odgsa, om, label:`${vaga} · ${localidade} · ${odgsa} · ${om}`};}).filter(Boolean);
         // Estado servidor
         const atribuicoes = (server.atribuicoes||[]).map(a=>({
           classificacao:Number(a.CLASSIFICACAO||a.classificacao),
           nome:String(a.NOME_GUERRA||a.nome),
+          vaga:String(a.VAGA||a.vaga||''),
           localidade:String(a.LOCALIDADE||a.localidade||''),
           odgsa:String(a.ODGSA||a.odgsa||''),
           om:String(a.OM||a.om||''),
@@ -187,8 +178,8 @@
 
     function repopulateSelVaga(){
       const sel=els.selVaga; sel.innerHTML='';
-      const ocupadas=new Set(state.atribuicoes.map(a=>`${a.localidade}||${a.odgsa}||${a.om}`));
-      const options = state.vagas.map(v=>{ const key=`${v.localidade}||${v.odgsa}||${v.om}`; const taken=ocupadas.has(key); return `<option value="${escapeAttr(key)}" ${taken?'disabled':''}>${escapeHtml(v.label)}${taken?' (indisponível)':''}</option>`; }).join('');
+      const ocupadas=new Set(state.atribuicoes.map(a=>`${a.vaga}||${a.localidade}||${a.odgsa}||${a.om}`));
+      const options = state.vagas.map(v=>{ const key=`${v.vaga}||${v.localidade}||${v.odgsa}||${v.om}`; const taken=ocupadas.has(key); return `<option value="${escapeAttr(key)}" ${taken?'disabled':''}>${escapeHtml(v.label)}${taken?' (indisponível)':''}</option>`; }).join('');
       sel.innerHTML = '<option value="">— selecione —</option>' + options;
       sel.disabled = state.vagas.length===0 || !els.selPessoa.value || !isPessoaNaVez(els.selPessoa.value);
     }
@@ -198,11 +189,11 @@
       const rows=state.atribuicoes.slice().sort((a,b)=>a.classificacao-b.classificacao||a.ts-b.ts);
       els.tbodyResultados.innerHTML = rows.map(a=>{
         const ts=new Date(a.ts).toLocaleString();
-        return `<tr><td>${a.classificacao}</td><td>${escapeHtml(a.nome)}</td><td>${escapeHtml(a.localidade)}</td><td>${escapeHtml(a.odgsa)}</td><td>${escapeHtml(a.om)}</td><td>${ts}</td></tr>`;
+        return `<tr><td>${a.classificacao}</td><td>${escapeHtml(a.nome)}</td><td>${escapeHtml(a.vaga||'')}</td><td>${escapeHtml(a.localidade)}</td><td>${escapeHtml(a.odgsa)}</td><td>${escapeHtml(a.om)}</td><td>${ts}</td></tr>`;
       }).join('');
       const prox=proximoDaVez();
       els.resumo.textContent = `${state.atribuicoes.length}/${state.pessoas.length} concluídas — vagas marcadas: ${state.vagas.length}`;
-      els.statusTurno.className='status '+(prox?'warn':'ok');
+      els.statusTurno.className='status '+(prox? 'warn':'ok');
       els.statusTurno.textContent = prox ? `Agora é a vez de ${prox.nome} (CLASSIFICACAO ${prox.classificacao}).` : 'Todas as escolhas foram concluídas.';
       els.btnExportar.disabled = state.atribuicoes.length===0;
     }
@@ -215,17 +206,17 @@
     els.btnConfirmar.addEventListener('click', async ()=>{
       const nome=els.selPessoa.value; const vKey=els.selVaga.value; if(!nome||!vKey) return;
       if(!isPessoaNaVez(nome)) return alert('Não é a sua vez.');
-      const [localidade,odgsa,om]=vKey.split('||'); const p=getPessoa(nome);
+      const [vaga,localidade,odgsa,om]=vKey.split('||'); const p=getPessoa(nome);
       try{
         els.btnConfirmar.disabled=true;
-        const resp = await backendChoose({ nome:p.nome, classificacao:p.classificacao, localidade, odgsa, om });
-        if(resp && resp.ok){ await loadAll(); alert(`Escolha registrada: ${p.nome} → ${localidade} · ${odgsa} · ${om}`); }
+        const resp = await backendChoose({ nome:p.nome, classificacao:p.classificacao, vaga, localidade, odgsa, om });
+        if(resp && resp.ok){ await loadAll(); alert(`Escolha registrada: ${p.nome} → ${vaga} · ${localidade} · ${odgsa} · ${om}`); }
       }catch(e){ alert('Erro: '+(e.message||e)); els.btnConfirmar.disabled=false; }
     });
 
     els.btnExportar.addEventListener('click', ()=>{
-      const header=['CLASSIFICACAO','NOME_GUERRA','LOCALIDADE','ODGSA','OM','TIMESTAMP'];
-      const lines=[header.join(',')].concat(state.atribuicoes.map(a=>[a.classificacao, '"'+a.nome.replaceAll('"','""')+'"', '"'+a.localidade.replaceAll('"','""')+'"', '"'+a.odgsa.replaceAll('"','""')+'"', '"'+a.om.replaceAll('"','""')+'"', new Date(a.ts).toISOString()].join(',')));
+      const header=['CLASSIFICACAO','NOME_GUERRA','VAGA','LOCALIDADE','ODGSA','OM','TIMESTAMP'];
+      const lines=[header.join(',')].concat(state.atribuicoes.map(a=>[a.classificacao,'"'+a.nome.replaceAll('"','""')+'"','"'+(a.vaga||'').replaceAll('"','""')+'"','"'+a.localidade.replaceAll('"','""')+'"','"'+a.odgsa.replaceAll('"','""')+'"','"'+a.om.replaceAll('"','""')+'"',new Date(a.ts).toISOString()].join(',')));
       const blob=new Blob([lines.join('\n')+'\n'], {type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='escolhas_eaof2025.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 800);
     });
 
