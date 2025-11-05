@@ -60,6 +60,7 @@
       <div class="row">
         <button id="btnExportar" class="ghost" disabled>Exportar resultados (CSV)</button>
         <button id="btnAdmin" class="ghost">Admin</button>
+        <button id="btnDiag" class="ghost">Diagnóstico</button>
         <button id="btnUndo" class="ghost" style="display:none">Desfazer última</button>
         <button id="btnReset" class="ghost" style="display:none">Reiniciar escolhas</button>
       </div>
@@ -112,7 +113,12 @@
       }
     })();
     function detectSeparator(text){ const firstLine=(text.split(/\r?\n/).find(l=>l.trim())||''); const c=(firstLine.match(/,/g)||[]).length; const s=(firstLine.match(/;/g)||[]).length; return s>c?';':','; }
-    function parseCSV(text, sep){ const rows=[]; let row=[], cur='', inQ=false; for(let i=0;i<text.length;i++){ const ch=text[i], nx=text[i+1]; if(ch==='"'){ if(inQ && nx==='"'){cur+='"'; i++;} else inQ=!inQ; } else if(ch===sep && !inQ){ row.push(cur); cur=''; } else if((ch==='\n'||ch==='\r')&&!inQ){ if(cur!==''||row.length){row.push(cur); rows.push(row); row=[]; cur='';} if(ch==='\r'&&nx==='\n') i++; } else { cur+=ch; } } if(cur!==''||row.length){row.push(cur); rows.push(row);} return rows; }
+    function parseCSV(text, sep){ const rows=[]; let row=[], cur='', inQ=false; for(let i=0;i<text.length;i++){ const ch=text[i], nx=text[i+1]; if(ch==='"'){ if(inQ && nx==='"'){cur+='"'; i++;} else inQ=!inQ; } else if(ch===sep && !inQ){ row.push(cur); cur=''; } else if((ch==='
+'||ch==='
+')&&!inQ){ if(cur!==''||row.length){row.push(cur); rows.push(row); row=[]; cur='';} if(ch==='
+'&&nx==='
+') i++; } else { cur+=ch; } } if(cur!==''||row.length){row.push(cur); rows.push(row);} return rows; }
+function parseHeaders(row){ return row.map(h=>String(h||'').replace(/^﻿/,'').trim().toUpperCase()); }
     function normHeader(h){ return String(h||'').trim().toUpperCase(); }
     function escapeHtml(s){ return String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
     function escapeAttr(s){ return escapeHtml(s).replaceAll('"','&quot;'); }
@@ -163,16 +169,59 @@
     }
 
     // ===== Fetch dos CSVs e do estado do servidor =====
-    async function fetchCsv(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error(`Falha ao carregar ${url}`); const text=await res.text(); const sep=detectSeparator(text); return parseCSV(text,sep).filter(r=>r.some(c=>String(c).trim()!=='')); }
+    async function fetchCsv(url){
+      let res; try{ res=await fetch(url,{cache:'no-store'}); }catch(e){ throw new Error(`Falha de rede ao carregar ${url}: ${e}`); }
+      if(!res.ok) throw new Error(`Falha ao carregar ${url}: HTTP ${res.status}`);
+      let text; try{ text=await res.text(); }catch(e){ throw new Error(`Falha ao ler texto de ${url}: ${e}`); }
+      const sep = detectSeparator(text);
+      const rows = parseCSV(text, sep).filter(r=>r.some(c=>String(c).trim()!==''));
+      if(!rows.length) throw new Error(`${url} está vazio`);
+      return rows;
+    }
+    function previewRow(row){ return row.map(c=>String(c).trim()).slice(0,6).join(' | ').slice(0,140); }
+    async function fetchWithTimeout(promise, ms, label){ const t = setTimeout(()=>{ throw new Error(`Timeout (${ms}ms) ao carregar ${label}`); }, ms); try{ const r = await promise; clearTimeout(t); return r; } catch(e){ clearTimeout(t); throw e; } }
 
     async function loadAll(){
       els.statusLoad.textContent = 'Sincronizando com o servidor…';
       try{
-        const [pRows, vRows, server] = await Promise.all([ fetchCsv(CLASSIF_URL), fetchCsv(VAGAS_URL), backendGetState() ]);
+        const pRows = await fetchWithTimeout(fetchCsv(CLASSIF_URL), 15000, 'classificacao.csv');
+        const vRows = await fetchWithTimeout(fetchCsv(VAGAS_URL), 15000, 'vagas.csv');
+        const server = await fetchWithTimeout(backendGetState(), 15000, 'backend (state)');
+
         // Pessoas
-        const pH=pRows[0].map(normHeader); const iC=pH.indexOf('CLASSIFICACAO'); const iN=pH.indexOf('NOME_GUERRA');
-        if(iC<0||iN<0) throw new Error('classificacao.csv sem CLASSIFICACAO/NOME_GUERRA');
+        const pH = parseHeaders(pRows[0]); const iC=pH.indexOf('CLASSIFICACAO'); const iN=pH.indexOf('NOME_GUERRA');
+        if(iC<0||iN<0) throw new Error(`classificacao.csv sem cabeçalhos esperados. Encontrado: ${pH.join(', ')}`);
         const pessoas=pRows.slice(1).map(r=>({nome:String(r[iN]||'').trim(), classificacao:Number(String(r[iC]||'').trim())})).filter(p=>p.nome&&Number.isFinite(p.classificacao));
+        if(!pessoas.length) throw new Error('Nenhuma linha válida em classificacao.csv');
+        pessoas.sort((a,b)=>a.classificacao-b.classificacao||a.nome.localeCompare(b.nome));
+
+        // Vagas (VAGA, LOCALIDADE, ODGSA, OM)
+        const vH = parseHeaders(vRows[0]); const iV=vH.indexOf('VAGA'); const iLoc=vH.indexOf('LOCALIDADE'); const iOdg=vH.indexOf('ODGSA'); const iOm=vH.indexOf('OM');
+        if(iV<0||iLoc<0||iOdg<0||iOm<0) throw new Error(`vagas.csv sem cabeçalhos VAGA/LOCALIDADE/ODGSA/OM. Encontrado: ${vH.join(', ')}`);
+        const vagas=vRows.slice(1).map(r=>{const vaga=String(r[iV]||'').trim(); const localidade=String(r[iLoc]||'').trim(); const odgsa=String(r[iOdg]||'').trim(); const om=String(r[iOm]||'').trim(); if(!vaga||!localidade||!odgsa||!om) return null; return {vaga, localidade, odgsa, om, label:`${vaga} · ${localidade} · ${odgsa} · ${om}`};}).filter(Boolean);
+        if(!vagas.length) console.warn('Aviso: nenhuma vaga válida encontrada. Verifique o CSV. Preview primeira linha:', previewRow(vRows[1]||[]));
+
+        // Estado servidor
+        const atribuicoes = (server.atribuicoes||[]).map(a=>({
+          classificacao:Number(a.CLASSIFICACAO||a.classificacao),
+          nome:String(a.NOME_GUERRA||a.nome),
+          vaga:String(a.VAGA||a.vaga||''),
+          localidade:String(a.LOCALIDADE||a.localidade||''),
+          odgsa:String(a.ODGSA||a.odgsa||''),
+          om:String(a.OM||a.om||''),
+          ts: a.TIMESTAMP? Date.parse(a.TIMESTAMP): (a.ts? Number(a.ts): Date.now())
+        })).sort((a,b)=>a.classificacao-b.classificacao||a.ts-b.ts);
+
+        state.pessoas=pessoas; state.vagas=vagas; state.atribuicoes=atribuicoes;
+        repopulateSelPessoa(); repopulateSelVaga(); renderResultados(); updateControlsForPessoa();
+        els.statusLoad.textContent = `OK (pessoas: ${pessoas.length}; escolhas: ${atribuicoes.length}; vagas: ${vagas.length}).`;
+        els.statusLoad.className='status ok';
+      }catch(e){
+        console.error('Diagnóstico loadAll:', e);
+        els.statusLoad.textContent = 'Erro ao carregar: ' + (e.message||e);
+        els.statusLoad.className='status err';
+      }
+    })).filter(p=>p.nome&&Number.isFinite(p.classificacao));
         pessoas.sort((a,b)=>a.classificacao-b.classificacao||a.nome.localeCompare(b.nome));
         // Vagas (agora com VAGA)
         const vH=vRows[0].map(normHeader);
@@ -266,6 +315,20 @@
     function requireAdmin(msg){ const pin = prompt(msg||'PIN do administrador:'); return pin===ADMIN_PIN; }
     els.btnAdmin.addEventListener('click', ()=>{ if(requireAdmin('PIN do administrador:')){ alert('Admin habilitado. Desfazer e Reiniciar disponíveis.'); els.btnUndo.style.display='inline-block'; els.btnReset.style.display='inline-block'; } else { alert('PIN incorreto.'); } });
 
+    // Diagnóstico detalhado
+    els.btnDiag.addEventListener('click', async ()=>{
+      const logs=[];
+      function push(msg){ logs.push(msg); console.log('[DIAG]', msg); }
+      try{ push('Teste CSV classificacao.csv…'); const p=await fetchCsv(CLASSIF_URL); push('OK classificacao.csv cabeçalhos: '+parseHeaders(p[0]).join(', ')); }
+      catch(e){ push('ERRO classificacao.csv: '+(e.message||e)); }
+      try{ push('Teste CSV vagas.csv…'); const v=await fetchCsv(VAGAS_URL); push('OK vagas.csv cabeçalhos: '+parseHeaders(v[0]).join(', ')); }
+      catch(e){ push('ERRO vagas.csv: '+(e.message||e)); }
+      try{ push('Teste backend state…'); const s=await backendGetState(); push('OK backend state, itens: '+((s.atribuicoes||[]).length)); }
+      catch(e){ push('ERRO backend: '+(e.message||e)); }
+      alert(logs.join('
+'));
+    }); els.btnUndo.style.display='inline-block'; els.btnReset.style.display='inline-block'; } else { alert('PIN incorreto.'); } });
+
     els.btnUndo.addEventListener('click', async ()=>{ if(!requireAdmin('Confirme o PIN para desfazer a última escolha:')) return; try{ await backendUndo(ADMIN_PIN); await loadAll(); alert('Última escolha desfeita.'); }catch(e){ alert('Erro: '+(e.message||e)); } });
     els.btnReset.addEventListener('click', async ()=>{ if(!requireAdmin('Confirme o PIN para reiniciar:')) return; if(!confirm('Tem certeza que deseja limpar todas as escolhas?')) return; try{ await backendReset(ADMIN_PIN); await loadAll(); alert('Escolhas reiniciadas.'); }catch(e){ alert('Erro: '+(e.message||e)); } });
 
@@ -274,4 +337,3 @@
   </script>
 </body>
 </html>
-
